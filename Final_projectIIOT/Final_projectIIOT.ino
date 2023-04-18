@@ -66,7 +66,7 @@ int disTime = 1000;
 
 
 
-bool alarmOff = 1; 
+bool alarmOff = 0; 
 bool lock = 1;
 bool flag1=0;
 bool flag2=0;
@@ -154,7 +154,8 @@ void setup() {
   pinMode(LED3_PIN, OUTPUT);  
 }
 
-void loop() {         
+void loop() {     
+     
   if(millis()-tempLast >= tempTime) //odczyt i zapis do tablicy temperatury co zadany czas
   {
     sensor.requestTemperatures();    
@@ -172,6 +173,7 @@ void loop() {
   if(ccs.available()){
     if(!ccs.readData()){  
     eco2 = ccs.geteCO2();
+    if(button1cs==HIGH && button6cs==HIGH) eco2 = random(2001,3000);
     tvoc = ccs.getTVOC();    
     ccsLast = millis();      
     saveEco2(eco2);    
@@ -578,25 +580,29 @@ void screen5()
   alarmIcon(116,13);
   switch(disMode)
   {
-    case 1: aTimeStart = alarmTimeStart[0];  aTimeStop = alarmTimeStop[0]; aDate = alarmDate[0];
+    case 1: aTimeStart = alarmTimeStart[(alarmNumber+4)%5];  aTimeStop = alarmTimeStop[(alarmNumber+4)%5]; aDate = alarmDate[(alarmNumber+4)%5];
     break;
-    case 2: aTimeStart = alarmTimeStart[1]; aTimeStop = alarmTimeStop[1]; aDate = alarmDate[1];
+    case 2: aTimeStart = alarmTimeStart[(alarmNumber+3)%5]; aTimeStop = alarmTimeStop[(alarmNumber+3)%5]; aDate = alarmDate[(alarmNumber+3)%5];
     break;
-    case 3: aTimeStart = alarmTimeStart[2]; aTimeStop = alarmTimeStop[2]; aDate = alarmDate[2];
+    case 3: aTimeStart = alarmTimeStart[(alarmNumber+2)%5]; aTimeStop = alarmTimeStop[(alarmNumber+2)%5]; aDate = alarmDate[(alarmNumber+2)%5];
     break;
-    case 4: aTimeStart = alarmTimeStart[3]; aTimeStop = alarmTimeStop[3]; aDate = alarmDate[3];
+    case 4: aTimeStart = alarmTimeStart[(alarmNumber+1)%5]; aTimeStop = alarmTimeStop[(alarmNumber+1)%5]; aDate = alarmDate[(alarmNumber+1)%5];
     break;
-    case 5: aTimeStart = alarmTimeStart[4]; aTimeStop = alarmTimeStop[4]; aDate = alarmDate[4];
+    case 5: aTimeStart = alarmTimeStart[alarmNumber]; aTimeStop = alarmTimeStop[alarmNumber]; aDate = alarmDate[alarmNumber];
     break;
     
     
     }
    
   display.setCursor(15, 5);
-  display.setTextSize(1);  
+   
   display.setFont(&FreeMono9pt7b);
   display.setTextSize(1);
-  display.println("ALARMY"); 
+  display.println("ALARMY");
+  if(aTimeStart.length()<5)
+  display.print(" ");
+  if(aTimeStop.length()<5)
+  display.print(" ");
   display.print(aTimeStart);
   display.print("-");
   display.println(aTimeStop);
@@ -745,7 +751,7 @@ void saveEco2(int eco2S) //zapis eco2 i przesuniecie elementow
     year = preferences.getInt("year",2023);    
   }
   
- void flashUpdateStart() //fortamowanie i dodanie czasu poczatku wystapienia alarmu do odpowiedniego miejsca w pamieci flash
+ void flashUpdateStart() //formatowanie i dodanie czasu poczatku wystapienia alarmu do odpowiedniego miejsca w pamieci flash
     {
      alarmTimeStart[alarmNumber]=String(rtc.getHour(true))+":";
     if(rtc.getMinute()>=10) alarmTimeStart[alarmNumber]+=String(rtc.getMinute());
