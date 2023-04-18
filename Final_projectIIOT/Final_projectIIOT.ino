@@ -210,7 +210,7 @@ void loop() {
     case 1:  screen1(); if(button5ls == LOW && button5cs == HIGH){if(disMode<5)disMode++; else disMode=1;}
              else if(button4ls == LOW && button4cs == HIGH){if(disMode>1)disMode--; else disMode=5;} 
              else if((button6ls == LOW && button6cs == HIGH) && disMode==4){screen=11; h1=(rtc.getHour(true)/10)%10; h2=rtc.getHour(true)%10; m1=(rtc.getMinute()/10)%10; m2=rtc.getMinute()%10; enter=0;}
-             else if((button6ls == LOW && button6cs == HIGH) && disMode==5){screen=12; d1=(rtc.getDay()/10)%10; d2=rtc.getDay()%10; mo1=((rtc.getMonth()+1)/10)%10; mo2=(rtc.getMonth()+1)%10; enter=0;}
+             else if((button6ls == LOW && button6cs == HIGH) && disMode==5){screen=12; d1=(rtc.getDay()/10)%10; d2=rtc.getDay()%10; mo1=((rtc.getMonth()+1)/10)%10; mo2=(rtc.getMonth()+1)%10; yy1=(rtc.getYear()/1000)%10; yy2=(rtc.getYear()/100)%10; yy3=(rtc.getYear()/10)%10; yy4=rtc.getYear()%10; enter=0;}
              else if((button2ls == LOW && button2cs == HIGH) || (((millis()-screenLastTime)>=screenTime) && !lock)) {screen=2; disMode=1;  screenLastTime=millis();}
              else if(button1ls == LOW && button1cs == HIGH) {screen=5; disMode=1;  screenLastTime=millis();}
              else if(eco2>=threshold&&!alarmOff) {  flashUpdateStart(); disMode=1; screen=6;}  break;
@@ -748,7 +748,7 @@ void saveEco2(int eco2S) //zapis eco2 i przesuniecie elementow
 
     d = preferences.getInt("day",3);
     mo = preferences.getInt("month",6);
-    year = preferences.getInt("year",2023);    
+    year = preferences.getInt("year2",2023);    
   }
   
  void flashUpdateStart() //formatowanie i dodanie czasu poczatku wystapienia alarmu do odpowiedniego miejsca w pamieci flash
@@ -838,8 +838,9 @@ void dateset() //specjalny ekran do ustawiania ręcznie daty
         else if (button6cs==HIGH && button6ls==LOW) enter=4; break; 
       case 4: display.setCursor(0, 50); display.setTextSize(2);  display.print("TAK");  display.setCursor(82, 50); display.print("NIE");
               display.setCursor(40,30); display.print("Rok?");
+              
               display.drawLine(82,47,112,47,WHITE); display.drawLine(82,48,112,48,WHITE);
-              if(button6cs==HIGH && button6ls==LOW) {year=rtc.getYear(); enter = 10;}
+              if(button6cs==HIGH && button6ls==LOW) { enter = 10;}
               else if( (button4cs==HIGH && button4ls==LOW ) || (button5cs==HIGH && button5ls==LOW)) enter=5; break;
               
       case 5: display.setCursor(0, 50); display.setTextSize(2);  display.print("TAK");  display.setCursor(82, 50); display.print("NIE");
@@ -862,7 +863,7 @@ void dateset() //specjalny ekran do ustawiania ręcznie daty
       
       //gdy wprowadzono wszystkie cyfry, nowy czas jest zapisywany zarowno do aktualnego programu jak i pamieci flash aby po resecie pamietal nowa date    
       case 10: d=d1*10+d2; mo=mo1*10+mo2; year=yy1*1000+yy2*100+yy3*10+yy4;
-      rtc.setTime(0, m, h, d, mo, year);  preferences.putInt("day",rtc.getDay()); preferences.putInt("month",rtc.getMonth()+1); preferences.putInt("year",rtc.getYear()); enter=11; break;
+      rtc.setTime(0, m, h, d, mo, year);  preferences.putInt("day",rtc.getDay()); preferences.putInt("month",rtc.getMonth()+1); preferences.putInt("year2",rtc.getYear()); enter=11; break;
   }
 
   display.setTextSize(3);
