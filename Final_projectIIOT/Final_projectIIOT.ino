@@ -248,9 +248,9 @@ void loop() {
        
    
       
-   //odświeżanie ekranu co zadany czas lub gdy zostal wcisniety jakis przycisk     
+   //odświeżanie ekranu co zadany czas lub przy zmianie stanu przycisku
    
-   if((millis()-disLast >= disTime) ||  button1ls != button1cs || button2ls != button2cs || button3ls != button3cs || button4ls != button4cs || button5ls != button5cs)
+   if((millis()-disLast >= disTime) ||  button1ls != button1cs || button2ls != button2cs || button3ls != button3cs || button4ls != button4cs || button5ls != button5cs || button6ls != button6cs)
      {      
       display.display();
       disLast = millis();
