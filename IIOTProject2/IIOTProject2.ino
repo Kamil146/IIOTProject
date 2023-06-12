@@ -1,4 +1,4 @@
-#include <Debounce.h>
+ #include <Debounce.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH1106.h>
@@ -8,6 +8,9 @@
 #include <ESP32Time.h>
 #include <Fonts/FreeMono9pt7b.h> //alternatywna czcionka
 #include <Preferences.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+
 
 #define BUTTON1_PIN 32 //ekran poprzedni
 #define BUTTON2_PIN 33 //ekran nastepny
@@ -24,6 +27,31 @@
 #define ECO2_SIZE 100 // wielkość tablicy przechowujacej pomiar eco2
 #define FLOAT_TO_INT(x) ((x)>=0?(int)((x)+0.5):(int)((x)-0.5))
 
+ const char* ssid1 = "FunBox2-1DD9";
+ char* ssid3 = "FunBox2-999B";
+ char* ssid2 = "POCOF3";
+ const char* password1 = "E97D21C4EAEAD133AF69C39D91";
+ char* password3 = "4C6AC1E5EC6CF1F9D7735F9E21";
+ char* password2 = "c5rzj3qarijqmvr";
+
+const char* mqttServer = "broker.mqttdashboard.com";
+//const char* mqttServer = "test.mosquitto.org"
+const int mqttPort = 1883;
+const char* mqtt_clientid = "Client1295XR785SDsagg";
+const char* topicTemp = "esp32project77/temperature";
+const char* topicEco2 = "esp32project77/eco2";
+const char* topicButtons = "esp32project77/buttons";
+const char* topicMode ="esp32project77/mode";
+const char* topicScreen = "esp32project77/screen";
+const char* topicAlarms = "esp32project77/alarms";
+
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 3600;
+const int daylightOffset_sec = 3600;
+struct tm timeinfo;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 const int oneWireBus = 5;
 //deklaracja dla każdego z przycisków oznaczająca ls - last state, oraz cs - current state, pozwala na wykrycie zbocza narastającego
@@ -59,6 +87,7 @@ unsigned long screenLastTime = 0;
 //mierzenie czasu wciśniecia przycisku P3
 unsigned long button3last = 0;
 int button3time = 5000;
+unsigned long wifiTime = 0;
 
 unsigned long disLast = 0;
 //ustalenia czasu odswiezania ekranu
@@ -115,6 +144,16 @@ float tempArray [TEMP_SIZE];
 int eco2Array [ECO2_SIZE];
 
 
+char msg_out[20];
+
+unsigned long recTime=0;
+unsigned long publishTime = 0;
+unsigned long publishTimeTemp=0;
+unsigned long startTime = 0;
+int switchvar=0;
+int dataMode = 0;
+int eco2Random = 0;
+float tempRandom = 0;
 
 Debounce Button1(BUTTON1_PIN,dTime1,true);
 Debounce Button2(BUTTON2_PIN,dTime2,true);
@@ -128,6 +167,7 @@ OneWire oneWire(oneWireBus);
 DallasTemperature sensor  (&oneWire);
 ESP32Time rtc;
 Preferences preferences;
+
 
 void setup() {
   Serial.begin(115200);
@@ -143,6 +183,11 @@ void setup() {
     Serial.println("Bład sensora CCS811, brak polaczenia");
     
     }
+  setupWifi(ssid1,password1);
+  client.setServer(mqttServer, mqttPort); // Sets the server details.
+  client.setCallback(callback); // Sets the message callback function
+  reconnect();
+  
   pinMode(BUTTON1_PIN, INPUT_PULLUP);
   pinMode(BUTTON2_PIN, INPUT_PULLUP);
   pinMode(BUTTON3_PIN, INPUT_PULLUP);
@@ -155,12 +200,14 @@ void setup() {
 }
 
 void loop() {     
-     
+   
+  if (!client.connected() && WiFi.status()== WL_CONNECTED)reconnect();
   if(millis()-tempLast >= tempTime) //odczyt i zapis do tablicy temperatury co zadany czas
   {
     sensor.requestTemperatures();    
-    t = sensor.getTempCByIndex(0);       
-    saveTemp(t);    
+    t = sensor.getTempCByIndex(0);
+    if(dataMode==1) t = tempRandom;       
+    saveTemp(t);          
     sumTemp=t+sumTemp;
     numTemp++;
     if(!flag1){maxTemp=t; minTemp=t; flag1=1;}
@@ -173,7 +220,7 @@ void loop() {
   if(ccs.available()){
     if(!ccs.readData()){  
     eco2 = ccs.geteCO2();
-    if(button1cs==HIGH && button6cs==HIGH) eco2 = random(2001,3000);
+    if(dataMode==1) eco2 = eco2Random;
     tvoc = ccs.getTVOC();    
     ccsLast = millis();      
     saveEco2(eco2);    
@@ -186,13 +233,39 @@ void loop() {
       }
   else {eco2=400; tvoc=0;}
   }  
+if(( millis()-publishTime>3000) && dataMode==0)
+   {
+    
+    
+    sprintf(msg_out, "%d",eco2);
+    client.publish(topicEco2, msg_out); 
+    publishTime = millis();
+    }
+ if( millis()-publishTimeTemp>10000)
+   {
+    dtostrf(t,2,1,msg_out);
+    client.publish(topicTemp, msg_out); 
+    
+    publishTimeTemp = millis();
+    }   
+  
   //odczyt stanu przyciskow
   button1cs = Button1.read();
   button2cs = Button2.read();
   button3cs = Button3.read();
   button4cs = Button4.read();
   button5cs = Button5.read();
-  button6cs = Button6.read();   
+  button6cs = Button6.read();  
+  
+  
+  client.loop(); // Przetwarzanie przychodzących wiadomości 
+
+  if(button1cs==HIGH && button3ls==LOW && button3cs==HIGH) {
+     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer); getLocalTime(&timeinfo); Serial.println(timeinfo.tm_hour); rtc.setTimeStruct(timeinfo);
+    preferences.putInt("hour",rtc.getHour(true)); preferences.putInt("minute",rtc.getMinute());
+    preferences.putInt("day",rtc.getDay()); preferences.putInt("month",rtc.getMonth()+1); preferences.putInt("year2",rtc.getYear()); }
+  if(button1cs==HIGH && button4ls==LOW && button4cs==HIGH) setupWifi(ssid1,password1);  
+  if(button1cs==HIGH && button5ls==LOW && button5cs==HIGH) {if (dataMode==0) dataMode=1; else if(dataMode==1) dataMode=0; sprintf(msg_out, "%d",dataMode); client.publish(topicMode, msg_out); }
   if(button3cs==LOW)button3last=millis(); //wł/wył możliwość alarmu gdy przycisk wciśnięty dłużej niż zadany czas (5s)
   if(millis()- button3last >= button3time)
     { button3last=millis();
@@ -224,22 +297,25 @@ void loop() {
              else if(button2ls == LOW && button2cs == HIGH){screen=2; disMode=1;screenLastTime=millis();}
              else if(button1ls == LOW && button1cs == HIGH){screen=5; disMode=1;screenLastTime=millis();} 
              else if(eco2>=threshold&&!alarmOff) {  flashUpdateStart(); disMode=1; screen=6;} break;                
-    case 2:  screen2(); if((button2ls == LOW && button2cs == HIGH) || (((millis()-screenLastTime)>=screenTime) && !lock)) {screen=3;  screenLastTime=millis();}
+    case 2:  screen2(); if(button5ls == LOW && button5cs == HIGH){if(disMode<2)disMode++; else disMode=1;} if(button4ls == LOW && button4cs == HIGH){if(disMode>1)disMode--; else disMode=2;} 
+             if((button2ls == LOW && button2cs == HIGH) || (((millis()-screenLastTime)>=screenTime) && !lock)) {screen=3; switchvar=0;  screenLastTime=millis();}
              else if(button1ls == LOW && button1cs == HIGH) {screen=1;  screenLastTime=millis();}
              else if(eco2>=threshold&&!alarmOff)  {  flashUpdateStart();  screen=6;}  break;
-    case 3:  screen3();  if((button2ls == LOW && button2cs == HIGH) || (((millis()-screenLastTime)>=screenTime) && !lock)) {screen=4;  screenLastTime=millis();}
+    case 3:  screen3(); if(button5ls == LOW && button5cs == HIGH){if(disMode<2)disMode++; else disMode=1;} if(button4ls == LOW && button4cs == HIGH){if(disMode>1)disMode--; else disMode=2;} 
+             if((button2ls == LOW && button2cs == HIGH) || (((millis()-screenLastTime)>=screenTime) && !lock)) {screen=4;  screenLastTime=millis();}
              else if(button1ls == LOW && button1cs == HIGH) {screen=2;  screenLastTime=millis();}
              else if(eco2>=threshold&&!alarmOff)  {  flashUpdateStart();  screen=6;}  break;
    case 4:  screen4(); if(button5ls == LOW && button5cs == HIGH){if(disMode<4)disMode++; else disMode=1;} if(button4ls == LOW && button4cs == HIGH){if(disMode>1)disMode--; else disMode=4;} 
             if((button2ls == LOW && button2cs == HIGH) || (((millis()-screenLastTime)>=screenTime) && !lock)) {screen=5; disMode=1; screenLastTime=millis();} 
-            else if(button1ls == LOW && button1cs == HIGH) {screen=3; disMode=1;  screenLastTime=millis();}
+            else if(button1ls == LOW && button1cs == HIGH) {screen=3; switchvar=0; disMode=1;  screenLastTime=millis();}
             else if(eco2>=threshold&&!alarmOff)  {  flashUpdateStart(); disMode=1; screen=6;} break;
     case 5:  screen5(); if(button5ls == LOW && button5cs == HIGH){if(disMode<5)disMode++; else disMode=1;} if(button4ls == LOW && button4cs == HIGH){if(disMode>1)disMode--; else disMode=5;} 
              if((button2ls == LOW && button2cs == HIGH) || (((millis()-screenLastTime)>=screenTime) && !lock)) {screen=1; disMode=1; screenLastTime=millis();}
              else if(button1ls == LOW && button1cs == HIGH) {screen=4; disMode=1;  screenLastTime=millis();}
              else if(eco2>=threshold&&!alarmOff)  {  flashUpdateStart(); disMode=1; screen=6;} break;
     case 6:  screen6(); if((eco2<threshold) || alarmOff)
-    {screen=1; screenLastTime=millis();    flashUpdateStop(); if(alarmNumber<4)alarmNumber++; else alarmNumber=0; preferences.putInt("number",alarmNumber);}  break;
+    {screen=1; screenLastTime=millis();    flashUpdateStop(); sprintf(msg_out, "%s %s %s",alarmTimeStart[alarmNumber],alarmTimeStop[alarmNumber],alarmDate[alarmNumber]); client.publish(topicAlarms, msg_out);
+    if(alarmNumber<4)alarmNumber++; else alarmNumber=0; preferences.putInt("number",alarmNumber);}  break;
   }       
    
    //swiecenie diody gdy eco2 osiąga odpowiednią wartość
@@ -248,11 +324,13 @@ void loop() {
        
    
       
-   //odświeżanie ekranu co zadany czas lub przy zmianie stanu przycisku
+   //odświeżanie ekranu co zadany czas lub przy zmianie stanu przycisku 
    
    if((millis()-disLast >= disTime) ||  button1ls != button1cs || button2ls != button2cs || button3ls != button3cs || button4ls != button4cs || button5ls != button5cs || button6ls != button6cs)
      {      
       display.display();
+      sprintf(msg_out, "%d%d",screen,disMode);
+      client.publish(topicScreen, msg_out); 
       disLast = millis();
       }
     
@@ -267,8 +345,82 @@ void loop() {
    button3ls = button3cs;
    button4ls = button4cs;
    button5ls = button5cs;
-   button6ls = button6cs;    
+   button6ls = button6cs;   
+   
+   
 }
+void setupWifi(const char* ssid, const char* password) {
+ 
+ Serial.print("Connecting");
+ display.clearDisplay();
+ display.setTextColor(WHITE);
+ display.setTextSize(1);
+ wifiTime=millis();
+ display.setCursor(1,1);
+ display.print("Connecting");  
+ WiFi.mode(WIFI_STA); // Set the mode to WiFi station mode.
+ WiFi.begin(ssid, password); // Start Wifi connection.
+ while ((WiFi.status() != WL_CONNECTED) && (millis()-wifiTime<10000 ) ) {
+ 
+  Serial.print(".");
+  display.print(".");
+  display.display();
+ }
+ Serial.printf("\nSuccess\n");
+}
+void callback(char* topic, byte* payload, unsigned int length) {
+  String message; 
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+    message+=char(payload[i]);
+  }
+  Serial.println();
+  Serial.println(message);
+  if(String(topic) == String(topicButtons)) {
+  if(message=="b1"){button1cs=HIGH; }
+  if(message=="b2"){button2cs=HIGH; }
+  if(message=="b3"){button3cs=HIGH; }
+  if(message=="b4"){button4cs=HIGH; }
+  if(message=="b5"){button5cs=HIGH; }
+  if(message=="b6"){button6cs=HIGH; }
+  }
+  if(String(topic) == String(topicMode))
+  { if(message=="0") dataMode = 0;
+    if(message=="1") dataMode =1 ;
+  }
+  if(String(topic) == String(topicEco2)&& dataMode==1)
+  {
+        eco2Random = message.toInt();
+    }
+  if(String(topic) == String(topicTemp)&& dataMode==1)
+  {
+        tempRandom = message.toFloat();
+        Serial.println(tempRandom);
+    }
+}
+void reconnect() {
+  recTime=millis();
+  while (!client.connected() && ((millis()-recTime)<3000) ) {
+    Serial.println("Connecting to MQTT server...");
+    if (client.connect(mqtt_clientid)) {
+      Serial.println("Connected to MQTT server");
+      Serial.print(client.state());
+      client.subscribe(topicButtons);
+      client.subscribe(topicMode);
+      client.subscribe(topicEco2);
+      client.subscribe(topicTemp);
+      
+    } else {
+      Serial.print("Failed to connect to MQTT server, rc=");
+      Serial.print(client.state());
+            
+    }
+    }
+}
+
 
 void screen1() //elementy wyświetlane na 1 ekranie
 {
@@ -417,6 +569,7 @@ void screen1() //elementy wyświetlane na 1 ekranie
 
 void screen2()
 {
+  if(disMode==1){
   int num = 6;
   int val = min(numEco2/20,5);
   display.clearDisplay();
@@ -437,11 +590,8 @@ void screen2()
       display.print(-i);
     } 
     } 
-}
-
-void screen3()
-{
-    
+  }
+  if(disMode==2){
   display.clearDisplay();
   lockIcon(101,5);
   alarmIcon(116,13); 
@@ -465,6 +615,68 @@ for(int i=0; i<num; i++) {
       display.print(-i*3);
     } 
     }   
+  }
+  
+}
+
+void screen3()
+{
+    if(disMode==1){ 
+      display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(1);  
+  display.setCursor(1,1);
+  display.printf("%d/2",disMode);
+   
+   if(WiFi.status()== WL_CONNECTED)
+    {
+      wifiIcon(40,15);
+      
+      display.setCursor(1,20);
+      display.println("Polaczono z Wifi:");
+      display.println(WiFi.SSID());
+      
+      
+      }
+    else {display.setCursor(1,20);
+      display.println("Brak polaczenia z Wifi"); }
+    
+    }
+    if(client.connected())
+     {
+      display.println("Polaczono z brokerem MQTT");
+      
+      }
+    else{
+      display.println("Brak polaczenia z brokerem MQTT");
+      }  
+      
+    if(disMode==2) {
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(1);  
+  display.setCursor(1,1);
+  display.printf("%d/2",disMode);
+  display.setCursor(1,20);
+  display.println("Wybierz siec Wifi");
+  display.printf(" %s\n",ssid1);
+  display.printf(" %s\n",ssid2);
+  display.printf(" %s\n",ssid3);
+  if(button6cs==HIGH && button6ls==LOW) {
+  switch(switchvar){
+      case 0: display.drawLine(1,33,1,28,WHITE); display.drawLine(2,33,2,28,WHITE); if(button6cs==HIGH && button6ls==LOW)switchvar++;
+       break;
+      case 1:  display.drawLine(1,42,1,37,WHITE); display.drawLine(2,42,2,37,WHITE); if(button6cs==HIGH && button6ls==LOW)switchvar++;
+      break;
+      case 2:  display.drawLine(1,51,1,46,WHITE); display.drawLine(2,51,2,46,WHITE); if(button6cs==HIGH && button6ls==LOW)switchvar=0;
+      break;
+     
+  }
+  }
+  
+  
+  }
+  
 }  
 
 void screen4()
